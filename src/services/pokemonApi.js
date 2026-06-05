@@ -80,30 +80,56 @@ function mapStats(pokemon) {
   }))
 }
 
-function getEvolutionLine(chain) {
-  const line = []
-  function walk(node) {
-    line.push(Number(node.species.url.match(/\/(\d+)\//)[1]))
-    node.evolves_to.forEach(walk)
+function parseEvolutionNode(node) {
+  const id = Number(node.species.url.match(/\/(\d+)\//)[1])
+  return {
+    id,
+    name: '',
+    children: (node.evolves_to ?? []).map(parseEvolutionNode),
   }
-  walk(chain.chain)
-  return line
 }
 
-async function getEvolutionNames(chain) {
-  if (!chain) return []
-  const ids = getEvolutionLine(chain)
-  const names = await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const species = await fetchJson(`${BASE}/pokemon-species/${id}`)
-        return { id, name: getKoreanName(species) }
-      } catch {
-        return { id, name: `#${id}` }
-      }
-    }),
-  )
-  return names
+async function enrichEvolutionTree(node) {
+  try {
+    const species = await fetchJson(`${BASE}/pokemon-species/${node.id}`)
+    node.name = getKoreanName(species)
+  } catch {
+    node.name = `#${node.id}`
+  }
+  await Promise.all(node.children.map(enrichEvolutionTree))
+  return node
+}
+
+async function buildEvolutionTree(chain) {
+  if (!chain?.chain) return null
+  const root = parseEvolutionNode(chain.chain)
+  await enrichEvolutionTree(root)
+  return root
+}
+
+export function findEvolutionNode(tree, id) {
+  if (!tree) return null
+  if (tree.id === id) return tree
+  for (const child of tree.children) {
+    const found = findEvolutionNode(child, id)
+    if (found) return found
+  }
+  return null
+}
+
+export function countEvolutionNodes(tree) {
+  if (!tree) return 0
+  return 1 + tree.children.reduce((sum, child) => sum + countEvolutionNodes(child), 0)
+}
+
+export function getDirectEvolutions(pokemon) {
+  const node = findEvolutionNode(pokemon.evolutionTree, pokemon.id)
+  return node?.children.map((child) => child.id) ?? []
+}
+
+export function getNextEvolution(pokemon) {
+  const direct = getDirectEvolutions(pokemon)
+  return direct.length === 1 ? direct[0] : null
 }
 
 export async function fetchPokemon(id) {
@@ -123,7 +149,7 @@ export async function fetchPokemon(id) {
       evolutionChain = null
     }
 
-    const evolutionLine = await getEvolutionNames(evolutionChain)
+    const evolutionTree = await buildEvolutionTree(evolutionChain)
 
     const hasShinySprite = Boolean(
       pokemon.sprites?.front_shiny
@@ -141,7 +167,7 @@ export async function fetchPokemon(id) {
       isLegendary: species.is_legendary ?? false,
       isMythical: species.is_mythical ?? false,
       shinyInfo: getShinyRateInfo(hasShinySprite),
-      evolutionLine,
+      evolutionTree,
       species,
       evolutionChain,
     }
@@ -154,7 +180,7 @@ export async function fetchPokemon(id) {
       description: '정보를 불러올 수 없습니다.',
       genus: '',
       shinyInfo: getShinyRateInfo(false),
-      evolutionLine: [],
+      evolutionTree: null,
       species: null,
       evolutionChain: null,
     }
@@ -171,14 +197,6 @@ export async function fetchPokemonBasic(id) {
   } catch {
     return fallbackPokemon(id)
   }
-}
-
-export function getNextEvolution(pokemon) {
-  if (!pokemon.evolutionChain) return null
-  const line = getEvolutionLine(pokemon.evolutionChain)
-  const idx = line.indexOf(pokemon.id)
-  if (idx === -1 || idx >= line.length - 1) return null
-  return line[idx + 1]
 }
 
 export async function fetchPokemonBatch(ids, onBatch) {

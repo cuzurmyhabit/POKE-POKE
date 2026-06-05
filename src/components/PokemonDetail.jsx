@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import PokemonImage from './PokemonImage'
-import { fetchPokemon } from '../services/pokemonApi'
+import { fetchPokemon, countEvolutionNodes } from '../services/pokemonApi'
 import {
   TYPE_KO,
   TYPE_EMOJI,
@@ -9,6 +9,71 @@ import {
   getGenerationLabel,
   STAT_COLORS,
 } from '../utils/pokemonMeta'
+
+function EvolutionCard({ node, currentId, isCaught, onSelect }) {
+  return (
+    <button
+      type="button"
+      className={`detail-evo-item ${node.id === currentId ? 'current' : ''} ${!isCaught ? 'locked' : ''}`}
+      onClick={() => onSelect?.(node.id)}
+    >
+      <PokemonImage
+        id={node.id}
+        src={null}
+        alt={isCaught ? node.name : '???'}
+        className={`detail-evo-sprite ${isCaught ? '' : 'silhouette-preview'}`}
+      />
+      <span>{isCaught ? node.name : '???'}</span>
+    </button>
+  )
+}
+
+function EvolutionNode({ node, currentId, isPokemonCaught, onSelectPokemon }) {
+  if (!node) return null
+
+  const hasBranches = node.children.length > 1
+
+  return (
+    <div className={`evo-tree-node ${hasBranches ? 'has-branches' : ''}`}>
+      <EvolutionCard
+        node={node}
+        currentId={currentId}
+        isCaught={isPokemonCaught(node.id)}
+        onSelect={onSelectPokemon}
+      />
+
+      {node.children.length > 0 && (
+        hasBranches ? (
+          <div className="evo-tree-fork">
+            <span className="detail-evo-arrow fork-arrow">→</span>
+            <div className="evo-tree-branches">
+              {node.children.map((child) => (
+                <div key={child.id} className="evo-tree-branch">
+                  <EvolutionNode
+                    node={child}
+                    currentId={currentId}
+                    isPokemonCaught={isPokemonCaught}
+                    onSelectPokemon={onSelectPokemon}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <span className="detail-evo-arrow">→</span>
+            <EvolutionNode
+              node={node.children[0]}
+              currentId={currentId}
+              isPokemonCaught={isPokemonCaught}
+              onSelectPokemon={onSelectPokemon}
+            />
+          </>
+        )
+      )}
+    </div>
+  )
+}
 
 export default function PokemonDetail({
   pokemonId,
@@ -198,33 +263,16 @@ export default function PokemonDetail({
               </div>
             )}
 
-            {detail.evolutionLine.length > 1 && (
+            {detail.evolutionTree && countEvolutionNodes(detail.evolutionTree) > 1 && (
               <div className="detail-section">
                 <h3>진화</h3>
-                <div className="detail-evolution">
-                  {detail.evolutionLine.map((evo, i) => {
-                    const evoCaught = isPokemonCaught(evo.id)
-                    return (
-                      <span key={evo.id} className="detail-evo-chain">
-                        <button
-                          type="button"
-                          className={`detail-evo-item ${evo.id === detail.id ? 'current' : ''} ${!evoCaught ? 'locked' : ''}`}
-                          onClick={() => onSelectPokemon?.(evo.id)}
-                        >
-                          <PokemonImage
-                            id={evo.id}
-                            src={null}
-                            alt={evoCaught ? evo.name : '???'}
-                            className={`detail-evo-sprite ${evoCaught ? '' : 'silhouette-preview'}`}
-                          />
-                          <span>{evoCaught ? evo.name : '???'}</span>
-                        </button>
-                        {i < detail.evolutionLine.length - 1 && (
-                          <span className="detail-evo-arrow">→</span>
-                        )}
-                      </span>
-                    )
-                  })}
+                <div className="detail-evolution evo-tree-root">
+                  <EvolutionNode
+                    node={detail.evolutionTree}
+                    currentId={detail.id}
+                    isPokemonCaught={isPokemonCaught}
+                    onSelectPokemon={onSelectPokemon}
+                  />
                 </div>
               </div>
             )}
