@@ -11,7 +11,26 @@ import {
   getTypeFilterLabel,
   getAllPokemonIds,
   getIdsForGeneration,
+  normalizePokemonName,
 } from '../utils/pokemonMeta'
+
+function matchesSearch(id, pokemon, query) {
+  const q = query.trim()
+  if (!q) return true
+
+  const numOnly = q.replace(/^#/, '').match(/^\d+$/)
+  if (numOnly) {
+    return parseInt(numOnly[0], 10) === id
+  }
+
+  if (!pokemon) return false
+
+  const normQ = normalizePokemonName(q)
+  const name = normalizePokemonName(pokemon.name)
+  const english = pokemon.englishName ? normalizePokemonName(pokemon.englishName) : ''
+
+  return name.includes(normQ) || english.includes(normQ)
+}
 
 const META_FILTERS = [
   { key: 'all', label: '전체' },
@@ -31,6 +50,7 @@ export default function Encyclopedia({ userData }) {
   const [loading, setLoading] = useState(false)
   const [loadProgress, setLoadProgress] = useState(0)
   const [selectedId, setSelectedId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const collected = userData.collectedPokemon
 
   const displayIds = getDisplayIds(filter, genFilter, collected)
@@ -57,13 +77,17 @@ export default function Encyclopedia({ userData }) {
     return () => { cancelled = true }
   }, [filter, genFilter, userData.collectedPokemon])
 
-  const filtered = displayIds.filter((id) => {
+  const typeFiltered = displayIds.filter((id) => {
     const p = pokemonMap[id]
     if (!p) return filter !== 'caught'
     if (filter === 'caught') return true
     if (filter === 'all') return true
     return p.types.includes(filter)
   })
+
+  const filtered = typeFiltered.filter((id) =>
+    matchesSearch(id, pokemonMap[id], searchQuery),
+  )
 
   const caught = collected.length
   const percent = ((caught / TOTAL_POKEMON) * 100).toFixed(1)
@@ -82,6 +106,33 @@ export default function Encyclopedia({ userData }) {
         <div><strong>{userData.totalScore}</strong> 총 점수</div>
         <span className="remaining">{TOTAL_POKEMON - caught}마리 남았어요</span>
       </div>
+
+      <div className="encyclopedia-search">
+        <span className="encyclopedia-search-icon" aria-hidden>🔍</span>
+        <input
+          type="search"
+          className="encyclopedia-search-input"
+          placeholder="이름 또는 번호로 검색 (예: 피카츄, 25)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="encyclopedia-search-clear"
+            onClick={() => setSearchQuery('')}
+            aria-label="검색어 지우기"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {searchQuery.trim() && (
+        <p className="encyclopedia-search-result">
+          검색 결과 <strong>{filtered.length}</strong>마리
+        </p>
+      )}
 
       <div className="filter-bar gen-filter-bar">
         <button
@@ -135,10 +186,17 @@ export default function Encyclopedia({ userData }) {
         </div>
       )}
 
-      {filter === 'caught' && caught === 0 && (
+      {filter === 'caught' && caught === 0 && !searchQuery.trim() && (
         <div className="empty-collection">
           <p>아직 획득한 포켓몬이 없어요.</p>
           <span>실루엣 퀴즈나 랜덤 퀴즈에서 정답을 맞혀 도감을 채워보세요!</span>
+        </div>
+      )}
+
+      {searchQuery.trim() && filtered.length === 0 && !loading && (
+        <div className="empty-collection">
+          <p>검색 결과가 없어요.</p>
+          <span>다른 이름이나 번호로 다시 검색해보세요.</span>
         </div>
       )}
 

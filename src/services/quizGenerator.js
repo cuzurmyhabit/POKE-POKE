@@ -1,4 +1,4 @@
-import { fetchPokemon, fetchPokemonBasic, getNextEvolution } from './pokemonApi'
+import { fetchPokemon, fetchPokemonBasic, getDirectEvolutions } from './pokemonApi'
 import {
   TYPE_KO,
   TYPE_EMOJI,
@@ -199,27 +199,40 @@ function buildGenerationQuestion(pokemon, seed) {
 }
 
 async function buildEvolutionQuestion(pokemon, seed) {
-  const nextId = getNextEvolution(pokemon)
-  if (!nextId) return null
+  const branchIds = getDirectEvolutions(pokemon)
+  if (branchIds.length === 0) return null
 
-  const nextPokemon = await fetchPokemonBasic(nextId)
-  const wrongIds = getWrongPokemonIds([pokemon.id, nextId], 3, seed)
+  const branchPokemon = await Promise.all(branchIds.map(fetchPokemonBasic))
+  const correctIdx = seed % branchIds.length
+  const correctId = branchIds[correctIdx]
+  const correctPokemon = branchPokemon[correctIdx]
+
+  const wrongIds = getWrongPokemonIds([pokemon.id, ...branchIds], 3, seed)
   const wrongPokemon = await Promise.all(wrongIds.map(fetchPokemonBasic))
 
   const options = shuffleWithSeed(
-    [nextPokemon, ...wrongPokemon].map((p) => ({ id: p.id, label: p.name })),
+    [correctPokemon, ...wrongPokemon].map((p) => ({ id: p.id, label: p.name })),
     seed,
   )
+
+  const branchNames = branchPokemon.map((p) => p.name).join(', ')
+  const isBranching = branchIds.length > 1
 
   return triviaBase({
     showImage: true,
     pokemon,
-    question: `${pokemon.name}가 진화하면 무엇이 될까요?`,
-    hint: `힌트: ${pokemon.types.map((t) => TYPE_KO[t]).join('/')} 타입 · ${getGenerationLabel(getGeneration(pokemon.id))} 포켓몬`,
+    question: isBranching
+      ? `다음 중 ${pokemon.name}에서 진화할 수 있는 포켓몬은?`
+      : `${pokemon.name}가 진화하면 무엇이 될까요?`,
+    hint: isBranching
+      ? `힌트: ${pokemon.name}은(는) 여러 갈래로 진화해요!`
+      : `힌트: ${pokemon.types.map((t) => TYPE_KO[t]).join('/')} 타입 · ${getGenerationLabel(getGeneration(pokemon.id))} 포켓몬`,
     options,
-    correctId: nextId,
-    explanation: `${pokemon.name} → ${nextPokemon.name}으로 진화해요`,
-    successText: () => `정답! ${nextPokemon.name}`,
+    correctId,
+    explanation: isBranching
+      ? `${pokemon.name}은(는) ${branchNames} 등으로 진화할 수 있어요!`
+      : `${pokemon.name} → ${correctPokemon.name}으로 진화해요`,
+    successText: () => `정답! ${correctPokemon.name}`,
   })
 }
 
