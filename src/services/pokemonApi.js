@@ -1,5 +1,5 @@
 import { TOTAL_POKEMON, getShinyRateInfo } from '../utils/pokemonMeta'
-import { resolveSpriteUrl, resolveCryUrl, SPRITE_DEFAULT, CRY_URL } from '../utils/pokemonSprites'
+import { resolveSpriteUrl, resolveCryUrl, resolveShinySpriteUrl, SPRITE_OFFICIAL, CRY_URL } from '../utils/pokemonSprites'
 
 const BASE = 'https://pokeapi.co/api/v2'
 
@@ -14,13 +14,25 @@ const STAT_KO = {
   speed: '스피드',
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, retries = 2) {
   if (cache.has(url)) return cache.get(url)
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`API error: ${res.status}`)
-  const data = await res.json()
-  cache.set(url, data)
-  return data
+
+  let lastError
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`API error: ${res.status}`)
+      const data = await res.json()
+      cache.set(url, data)
+      return data
+    } catch (err) {
+      lastError = err
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError
 }
 
 export function getKoreanName(species) {
@@ -44,6 +56,17 @@ export function getPokemonSprite(pokemon, id) {
   return resolveSpriteUrl(pokemon, id)
 }
 
+export function getPokemonShinySprite(pokemon, id) {
+  return resolveShinySpriteUrl(pokemon, id)
+}
+
+export function getPokemonCanShiny(pokemon) {
+  return Boolean(
+    pokemon.sprites?.front_shiny
+    || pokemon.sprites?.other?.['official-artwork']?.front_shiny,
+  )
+}
+
 export function getPokemonCry(pokemon, id) {
   return resolveCryUrl(pokemon, id)
 }
@@ -53,7 +76,9 @@ function fallbackPokemon(id) {
     id,
     name: `포켓몬 #${id}`,
     englishName: '',
-    sprite: SPRITE_DEFAULT(id),
+    sprite: SPRITE_OFFICIAL(id),
+    shinySprite: resolveShinySpriteUrl({}, id),
+    canShiny: true,
     cry: CRY_URL(id),
     types: ['normal'],
   }
@@ -66,6 +91,8 @@ function mapPokemon(pokemon, species, extra = {}) {
     name: getKoreanName(species),
     englishName: pokemon.name,
     sprite: getPokemonSprite(pokemon, id),
+    shinySprite: getPokemonShinySprite(pokemon, id),
+    canShiny: getPokemonCanShiny(pokemon),
     cry: getPokemonCry(pokemon, id),
     types: pokemon.types.map((t) => t.type.name),
     ...extra,
@@ -196,6 +223,56 @@ export async function fetchPokemonBasic(id) {
     return mapPokemon(pokemon, species)
   } catch {
     return fallbackPokemon(id)
+  }
+}
+
+export async function fetchPokemonQuiz(id) {
+  try {
+    const [pokemon, species] = await Promise.all([
+      fetchJson(`${BASE}/pokemon/${id}`),
+      fetchJson(`${BASE}/pokemon-species/${id}`),
+    ])
+    return {
+      ...mapPokemon(pokemon, species),
+      weight: pokemon.weight / 10,
+      height: pokemon.height / 10,
+      description: getKoreanFlavorText(species),
+      genus: getKoreanGenus(species),
+      color: species.color?.name ?? 'unknown',
+      isLegendary: species.is_legendary ?? false,
+      isMythical: species.is_mythical ?? false,
+      evolutionTree: null,
+      evolutionChain: null,
+    }
+  } catch {
+    return {
+      ...fallbackPokemon(id),
+      weight: 0,
+      height: 0,
+      description: '정보를 불러올 수 없습니다.',
+      genus: '',
+      color: 'unknown',
+      isLegendary: false,
+      isMythical: false,
+      evolutionTree: null,
+      evolutionChain: null,
+    }
+  }
+}
+
+export async function attachEvolutionTree(pokemon) {
+  if (pokemon.evolutionTree) return pokemon
+
+  try {
+    const species = await fetchJson(`${BASE}/pokemon-species/${pokemon.id}`)
+    const chainUrl = species.evolution_chain?.url
+    if (!chainUrl) return { ...pokemon, evolutionTree: null, evolutionChain: null }
+
+    const evolutionChain = await fetchJson(chainUrl)
+    const evolutionTree = await buildEvolutionTree(evolutionChain)
+    return { ...pokemon, evolutionTree, evolutionChain }
+  } catch {
+    return { ...pokemon, evolutionTree: null, evolutionChain: null }
   }
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from './Layout'
-import { formatDateLong, getTodayKey, getSilhouetteState, MAX_SILHOUETTE_PER_DAY } from '../utils/storage'
+import { formatDateLong, getTodayKey, getSilhouetteState, MAX_SILHOUETTE_PER_DAY, getUniqueCaughtCount } from '../utils/storage'
 import { fetchPokemonBasic } from '../services/pokemonApi'
 import PokemonImage from './PokemonImage'
 import { TYPE_KO, TOTAL_POKEMON } from '../utils/pokemonMeta'
@@ -14,7 +14,7 @@ export default function Home({ userData }) {
   const silhouetteState = getSilhouetteState(userData)
   const silhouetteDone = silhouetteState.attempts >= MAX_SILHOUETTE_PER_DAY
   const collected = userData.collectedPokemon
-  const caught = collected.length
+  const caught = getUniqueCaughtCount(userData)
   const percent = ((caught / TOTAL_POKEMON) * 100).toFixed(1)
 
   const [pokemonMap, setPokemonMap] = useState({})

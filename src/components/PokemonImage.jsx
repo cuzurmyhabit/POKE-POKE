@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
-import { getSpriteCandidates } from '../utils/pokemonSprites'
+import { getSpriteCandidates, getShinySpriteCandidates } from '../utils/pokemonSprites'
 
-export default function PokemonImage({ id, src, alt, className }) {
-  const candidates = getSpriteCandidates(id, src)
+export default function PokemonImage({ id, src, alt, className, shiny = false }) {
+  const candidates = shiny ? getShinySpriteCandidates(id, src) : getSpriteCandidates(id, src)
   const [index, setIndex] = useState(0)
 
   useEffect(() => {
     setIndex(0)
-  }, [src, id])
+  }, [src, id, shiny])
 
   const imgSrc = candidates[index] || candidates[candidates.length - 1]
 

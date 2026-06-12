@@ -130,7 +130,7 @@ export const COLOR_KO = {
   yellow: '노랑',
 }
 
-export const SHINY_ODDS = 4096
+export const SHINY_ODDS = 200
 
 export function getShinyRateInfo(hasShinySprite) {
   if (!hasShinySprite) {

@@ -3,6 +3,7 @@ import { PageHeader } from './Layout'
 import PokemonImage from './PokemonImage'
 import { fetchPokemonBasic } from '../services/pokemonApi'
 import { silhouettePokemonId, shuffleWithSeed, hashString } from '../utils/seed'
+import { rollSilhouetteShiny } from '../utils/shiny'
 import {
   TYPE_KO,
   TYPE_EMOJI,
@@ -18,7 +19,7 @@ import {
   MAX_SILHOUETTE_PER_DAY,
 } from '../utils/storage'
 
-export default function TodaySilhouette({ userData, onComplete }) {
+export default function TodaySilhouette({ userData, onComplete, onFail }) {
   const today = getTodayKey()
   const silhouetteState = getSilhouetteState(userData)
   const allDone = silhouetteState.attempts >= MAX_SILHOUETTE_PER_DAY
@@ -34,6 +35,7 @@ export default function TodaySilhouette({ userData, onComplete }) {
   const [revealed, setRevealed] = useState(false)
   const [showBurst, setShowBurst] = useState(false)
   const [roundComplete, setRoundComplete] = useState(false)
+  const [roundIsShiny, setRoundIsShiny] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const loadIdRef = useRef(0)
 
@@ -76,7 +78,9 @@ export default function TodaySilhouette({ userData, onComplete }) {
 
         if (!active || currentLoadId !== loadIdRef.current) return
 
+        const isShiny = rollSilhouetteShiny(today, attemptIndex, main.canShiny)
         setPokemon(main)
+        setRoundIsShiny(isShiny)
         setOptions(opts)
         setLoading(false)
       } catch (err) {
@@ -94,14 +98,21 @@ export default function TodaySilhouette({ userData, onComplete }) {
     setRevealed(true)
     setShowBurst(true)
     setRoundComplete(true)
-    onComplete(pokemon.id)
+    onComplete(pokemon.id, { isShiny: roundIsShiny })
     setTimeout(() => setShowBurst(false), 1200)
+  }
+
+  const handleWrong = () => {
+    setRevealed(true)
+    setRoundComplete(true)
+    onFail?.()
   }
 
   const handleChoiceSelect = (optionId) => {
     if (selected !== null || !pokemon || roundComplete) return
     setSelected(optionId)
     if (optionId === pokemon.id) handleCorrect()
+    else handleWrong()
   }
 
   const handleTextSubmit = (e) => {
@@ -115,6 +126,7 @@ export default function TodaySilhouette({ userData, onComplete }) {
 
     setSelected(correct ? pokemon.id : -1)
     if (correct) handleCorrect()
+    else handleWrong()
   }
 
   const handleNextRound = () => {
@@ -127,7 +139,8 @@ export default function TodaySilhouette({ userData, onComplete }) {
 
   const isCorrect = selected === pokemon?.id
   const isWrong = selected !== null && !isCorrect
-  const canPlayMore = roundComplete && silhouetteState.attempts < MAX_SILHOUETTE_PER_DAY
+  const liveState = getSilhouetteState(userData)
+  const canPlayMore = roundComplete && liveState.attempts < MAX_SILHOUETTE_PER_DAY
 
   if (allDone && !pokemon) {
     return (
@@ -170,24 +183,33 @@ export default function TodaySilhouette({ userData, onComplete }) {
       <PageHeader
         title="오늘의 실루엣"
         subtitle="검은 그림자만 보고 포켓몬을 맞혀보세요!"
-        badge={`📅 ${formatDateDisplay(today)} · ${silhouetteState.attempts}/${MAX_SILHOUETTE_PER_DAY}`}
+        badge={`📅 ${formatDateDisplay(today)} · ${liveState.attempts}/${MAX_SILHOUETTE_PER_DAY}`}
       />
 
       <div className="silhouette-grid">
         <div className="silhouette-card">
-          <p className="silhouette-question">이 포켓몬은 누구일까요?</p>
-          <div className={`silhouette-image-wrap ${revealed ? 'revealed-wrap' : ''}`}>
-            {showBurst && <div className="reveal-burst" aria-hidden="true" />}
+          <p className="silhouette-question">
+            {roundIsShiny ? '✨ 이로치 실루엣! 이 포켓몬은 누구일까요?' : '이 포켓몬은 누구일까요?'}
+          </p>
+          <div className={`silhouette-image-wrap ${revealed ? 'revealed-wrap' : ''} ${roundIsShiny ? 'shiny-silhouette-wrap' : ''}`}>
+            {showBurst && <div className={`reveal-burst ${roundIsShiny ? 'shiny-burst' : ''}`} aria-hidden="true" />}
             {pokemon && (
               <PokemonImage
                 id={pokemon.id}
-                src={pokemon.sprite}
-                alt="실루엣"
-                className={`silhouette-img ${revealed ? 'revealed' : ''} ${showBurst ? 'burst' : ''}`}
+                src={roundIsShiny ? pokemon.shinySprite : pokemon.sprite}
+                alt={revealed ? pokemon.name : '실루엣'}
+                shiny={roundIsShiny}
+                className={`silhouette-img ${roundIsShiny ? 'shiny-silhouette' : ''} ${revealed ? 'revealed' : ''} ${showBurst ? 'burst' : ''}`}
               />
             )}
           </div>
+          {revealed && pokemon && (
+            <p className={`silhouette-reveal-name ${roundIsShiny ? 'shiny-name' : ''}`}>
+              {roundIsShiny && '✨ '}{pokemon.name}
+            </p>
+          )}
           <div className="hint-tags">
+            {roundIsShiny && <span className="hint-tag shiny-hint-tag">✨ 이로치</span>}
             <span className="hint-tag">
               {TYPE_EMOJI[pokemon?.types?.[0]]} {TYPE_KO[pokemon?.types?.[0]]} 타입
             </span>
@@ -237,7 +259,7 @@ export default function TodaySilhouette({ userData, onComplete }) {
                     >
                       {opt.id === pokemon.id && isCorrect && '⚡ '}
                       {opt.label}
-                      {opt.id === pokemon.id && isCorrect && ' ✓'}
+                      {opt.id === pokemon.id && selected !== null && ' ✓'}
                     </button>
                   )
                 })}
@@ -270,44 +292,43 @@ export default function TodaySilhouette({ userData, onComplete }) {
 
           {isCorrect && pokemon && (
             <>
-              <div className="result-card">
-                <div className="result-icon">{TYPE_EMOJI[pokemon.types[0]]}</div>
+              <div className={`result-card ${roundIsShiny ? 'shiny-result' : ''}`}>
+                <div className="result-icon">{roundIsShiny ? '✨' : TYPE_EMOJI[pokemon.types[0]]}</div>
                 <div className="result-info">
                   <span className="result-number">No. {String(pokemon.id).padStart(4, '0')}</span>
-                  <span className="result-name">{pokemon.name}</span>
+                  <span className="result-name">{pokemon.name}{roundIsShiny ? ' ✨' : ''}</span>
                   <span className="type-badge">{TYPE_KO[pokemon.types[0]]}</span>
                 </div>
                 <span className="points-badge">+3 점수 획득!</span>
               </div>
 
               <div className="success-message">
+                <p>{roundIsShiny ? `✨ 이로치 ${pokemon.name}를 획득했습니다!` : `🎉 ${pokemon.name}를 획득했습니다!`}</p>
                 <p>🎉 {pokemon.name}이(가) 도감에 등록되었습니다!</p>
                 {canPlayMore ? (
-                  <span>아직 오늘 {MAX_SILHOUETTE_PER_DAY - silhouetteState.attempts}번 더 도전할 수 있어요!</span>
+                  <span>아직 오늘 {MAX_SILHOUETTE_PER_DAY - liveState.attempts}번 더 도전할 수 있어요!</span>
                 ) : (
                   <span>오늘의 실루엣을 모두 완료했어요!</span>
                 )}
               </div>
-
-              {canPlayMore && (
-                <button type="button" className="next-btn" onClick={handleNextRound}>
-                  다음 실루엣 도전 →
-                </button>
-              )}
             </>
           )}
 
-          {isWrong && (
+          {isWrong && pokemon && (
             <div className="fail-message">
-              <p>아쉬워요! 힌트를 참고해 다시 도전해보세요.</p>
-              <button
-                type="button"
-                className="retry-btn"
-                onClick={() => { setSelected(null); setTextAnswer('') }}
-              >
-                다시 도전하기
-              </button>
+              <p>아쉬워요! 정답은 <strong>{roundIsShiny ? `✨ ${pokemon.name}` : pokemon.name}</strong>였어요.</p>
+              {canPlayMore ? (
+                <span>다음 실루엣에 도전해보세요.</span>
+              ) : (
+                <span>오늘의 실루엣을 모두 완료했어요.</span>
+              )}
             </div>
+          )}
+
+          {roundComplete && canPlayMore && (
+            <button type="button" className="next-btn" onClick={handleNextRound}>
+              다음 실루엣 도전 →
+            </button>
           )}
         </div>
       </div>

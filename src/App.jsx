@@ -1,14 +1,28 @@
+import { useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Home from './components/Home'
 import TodaySilhouette from './components/TodaySilhouette'
 import QuizPage from './components/QuizPage'
 import Encyclopedia from './components/Encyclopedia'
+import CaptureNotify from './components/CaptureNotify'
 import { useUserData } from './hooks/useUserData'
 import './App.css'
 
 function App() {
-  const { userData, completeSilhouette, recordQuizAnswer } = useUserData()
+  const { userData, completeSilhouette, failSilhouette, recordQuizAnswer } = useUserData()
+  const [capture, setCapture] = useState(null)
+
+  const handleSilhouetteComplete = (pokemonId, options) => {
+    const result = completeSilhouette(pokemonId, options)
+    if (result) setCapture(result)
+  }
+
+  const handleQuizAnswer = (isCorrect, pokemonId, options) => {
+    const result = recordQuizAnswer(isCorrect, pokemonId, options)
+    if (result) setCapture(result)
+    return result
+  }
 
   return (
     <Layout userData={userData}>
@@ -19,7 +33,8 @@ function App() {
           element={
             <TodaySilhouette
               userData={userData}
-              onComplete={completeSilhouette}
+              onComplete={handleSilhouetteComplete}
+              onFail={failSilhouette}
             />
           }
         />
@@ -28,13 +43,15 @@ function App() {
           element={
             <QuizPage
               userData={userData}
-              onAnswer={recordQuizAnswer}
+              onAnswer={handleQuizAnswer}
             />
           }
         />
         <Route path="/dogam" element={<Encyclopedia userData={userData} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      <CaptureNotify capture={capture} onClose={() => setCapture(null)} />
     </Layout>
   )
 }

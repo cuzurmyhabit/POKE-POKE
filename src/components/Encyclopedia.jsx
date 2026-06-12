@@ -2,21 +2,31 @@ import { useState, useEffect } from 'react'
 import { PageHeader } from './Layout'
 import PokemonImage from './PokemonImage'
 import PokemonDetail from './PokemonDetail'
+import TypeBadge from './TypeBadge'
 import { fetchPokemonBatch } from '../services/pokemonApi'
 import {
   TYPE_KO,
   TOTAL_POKEMON,
   ALL_TYPE_KEYS,
   GENERATIONS,
-  getTypeFilterLabel,
   getAllPokemonIds,
   getIdsForGeneration,
   normalizePokemonName,
 } from '../utils/pokemonMeta'
+import {
+  hasNormalForm,
+  hasShinyForm,
+  getAllCaughtIds,
+  getUniqueCaughtCount,
+} from '../utils/storage'
 
-function matchesSearch(id, pokemon, query) {
+function matchesSearch(id, pokemon, query, userData) {
   const q = query.trim()
   if (!q) return true
+
+  const hasNormal = hasNormalForm(userData, id)
+  const hasShiny = hasShinyForm(userData, id)
+  if (!hasNormal && !hasShiny) return false
 
   const numOnly = q.replace(/^#/, '').match(/^\d+$/)
   if (numOnly) {
@@ -35,10 +45,12 @@ function matchesSearch(id, pokemon, query) {
 const META_FILTERS = [
   { key: 'all', label: '전체' },
   { key: 'caught', label: '획득만' },
+  { key: 'shiny', label: '✨ 이로치' },
 ]
 
-function getDisplayIds(filter, genFilter, collected) {
-  if (filter === 'caught') return collected
+function getDisplayIds(filter, genFilter, userData) {
+  if (filter === 'caught') return getAllCaughtIds(userData)
+  if (filter === 'shiny') return userData.collectedShiny ?? []
   if (genFilter !== 'all') return getIdsForGeneration(Number(genFilter))
   return getAllPokemonIds()
 }
@@ -51,12 +63,15 @@ export default function Encyclopedia({ userData }) {
   const [loadProgress, setLoadProgress] = useState(0)
   const [selectedId, setSelectedId] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const collected = userData.collectedPokemon
 
-  const displayIds = getDisplayIds(filter, genFilter, collected)
+  const displayIds = getDisplayIds(filter, genFilter, userData)
 
   useEffect(() => {
-    if (filter === 'caught' && collected.length === 0) {
+    if (filter === 'caught' && getAllCaughtIds(userData).length === 0) {
+      setPokemonMap({})
+      return
+    }
+    if (filter === 'shiny' && (userData.collectedShiny?.length ?? 0) === 0) {
       setPokemonMap({})
       return
     }
@@ -75,22 +90,23 @@ export default function Encyclopedia({ userData }) {
     })
 
     return () => { cancelled = true }
-  }, [filter, genFilter, userData.collectedPokemon])
+  }, [filter, genFilter, userData.collectedPokemon, userData.collectedShiny])
 
   const typeFiltered = displayIds.filter((id) => {
     const p = pokemonMap[id]
+    if (filter === 'shiny') return true
     if (!p) return filter !== 'caught'
     if (filter === 'caught') return true
     if (filter === 'all') return true
     return p.types.includes(filter)
   })
 
-  const filtered = typeFiltered.filter((id) => {
-    if (searchQuery.trim() && !collected.includes(id)) return false
-    return matchesSearch(id, pokemonMap[id], searchQuery)
-  })
+  const filtered = typeFiltered.filter((id) =>
+    matchesSearch(id, pokemonMap[id], searchQuery, userData),
+  )
 
-  const caught = collected.length
+  const caught = getUniqueCaughtCount(userData)
+  const shinyCount = userData.collectedShiny?.length ?? 0
   const percent = ((caught / TOTAL_POKEMON) * 100).toFixed(1)
 
   return (
@@ -102,7 +118,7 @@ export default function Encyclopedia({ userData }) {
 
       <div className="encyclopedia-stats">
         <div><strong>{caught}</strong> 획득</div>
-        <div><strong>{TOTAL_POKEMON}</strong> 전체</div>
+        <div><strong>{shinyCount}</strong> ✨ 이로치</div>
         <div><strong>{percent}%</strong> 완성도</div>
         <div><strong>{userData.totalScore}</strong> 총 점수</div>
         <span className="remaining">{TOTAL_POKEMON - caught}마리 남았어요</span>
@@ -160,20 +176,20 @@ export default function Encyclopedia({ userData }) {
           <button
             key={f.key}
             type="button"
-            className={`filter-btn ${filter === f.key ? 'active' : ''}`}
+            className={`filter-btn ${filter === f.key ? 'active' : ''} ${f.key === 'shiny' ? 'filter-btn-shiny' : ''}`}
             onClick={() => setFilter(f.key)}
           >
             {f.label}
           </button>
         ))}
-        {ALL_TYPE_KEYS.map((typeKey) => (
+        {filter !== 'shiny' && ALL_TYPE_KEYS.map((typeKey) => (
           <button
             key={typeKey}
             type="button"
             className={`filter-btn type-filter-btn type-filter-${typeKey} ${filter === typeKey ? 'active' : ''}`}
             onClick={() => setFilter(typeKey)}
           >
-            {getTypeFilterLabel(typeKey)}
+            {TYPE_KO[typeKey]}
           </button>
         ))}
       </div>
@@ -194,6 +210,13 @@ export default function Encyclopedia({ userData }) {
         </div>
       )}
 
+      {filter === 'shiny' && shinyCount === 0 && !searchQuery.trim() && (
+        <div className="empty-collection">
+          <p>아직 이로치를 획득하지 못했어요.</p>
+          <span>퀴즈나 실루엣에서 이로치가 나오면 도감에 등록됩니다!</span>
+        </div>
+      )}
+
       {searchQuery.trim() && filtered.length === 0 && !loading && (
         <div className="empty-collection">
           <p>검색 결과가 없어요.</p>
@@ -204,27 +227,40 @@ export default function Encyclopedia({ userData }) {
       <div className="pokedex-grid">
         {filtered.map((id) => {
           const p = pokemonMap[id]
-          const isCaught = collected.includes(id)
+          const hasNormal = hasNormalForm(userData, id)
+          const hasShinyCaught = hasShinyForm(userData, id)
+          const isCaught = hasNormal || hasShinyCaught
+          const showShinyOnCard = filter === 'shiny' && hasShinyCaught
+
           if (!p) return <div key={id} className="pokedex-card loading-card" />
+
           return (
             <button
               key={id}
               type="button"
-              className={`pokedex-card clickable ${isCaught ? 'caught' : 'locked'} type-${p.types[0]}`}
+              className={`pokedex-card clickable ${isCaught ? 'caught' : 'locked'} ${showShinyOnCard ? 'shiny-card' : ''} type-${p.types[0]}`}
               onClick={() => setSelectedId(id)}
             >
-              <PokemonImage
-                id={id}
-                src={p.sprite}
-                alt={isCaught ? p.name : '실루엣'}
-                className={`pokedex-sprite ${isCaught ? '' : 'silhouette-preview'}`}
-              />
+              {hasShinyCaught && filter !== 'shiny' && (
+                <span className="pokedex-mini-shiny" title="이로치 획득">✨</span>
+              )}
+              <div className="pokedex-sprite-wrap">
+                <PokemonImage
+                  id={id}
+                  src={showShinyOnCard ? p.shinySprite : p.sprite}
+                  alt={isCaught ? p.name : '실루엣'}
+                  shiny={showShinyOnCard}
+                  className={`pokedex-sprite ${isCaught ? '' : 'silhouette-preview'}`}
+                />
+              </div>
               <span className="pokedex-number">#{String(id).padStart(4, '0')}</span>
               <span className="pokedex-name">{isCaught ? p.name : '???'}</span>
               {isCaught && (
-                <span className="pokedex-type">
-                  {p.types.map((t) => TYPE_KO[t]).join('/')}
-                </span>
+                <div className="pokedex-types">
+                  {p.types.map((t) => (
+                    <TypeBadge key={t} typeKey={t} size="sm" />
+                  ))}
+                </div>
               )}
             </button>
           )
@@ -234,8 +270,8 @@ export default function Encyclopedia({ userData }) {
       {selectedId !== null && (
         <PokemonDetail
           pokemonId={selectedId}
-          isCaught={collected.includes(selectedId)}
-          collectedPokemon={collected}
+          collectedPokemon={userData.collectedPokemon}
+          collectedShiny={userData.collectedShiny}
           onClose={() => setSelectedId(null)}
           onSelectPokemon={setSelectedId}
         />

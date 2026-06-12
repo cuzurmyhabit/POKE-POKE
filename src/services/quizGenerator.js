@@ -1,4 +1,4 @@
-import { fetchPokemon, fetchPokemonBasic, getDirectEvolutions } from './pokemonApi'
+import { fetchPokemonQuiz, fetchPokemonBasic, attachEvolutionTree, getDirectEvolutions } from './pokemonApi'
 import {
   TYPE_KO,
   TYPE_EMOJI,
@@ -199,7 +199,8 @@ function buildGenerationQuestion(pokemon, seed) {
 }
 
 async function buildEvolutionQuestion(pokemon, seed) {
-  const branchIds = getDirectEvolutions(pokemon)
+  const enriched = await attachEvolutionTree(pokemon)
+  const branchIds = getDirectEvolutions(enriched)
   if (branchIds.length === 0) return null
 
   const branchPokemon = await Promise.all(branchIds.map(fetchPokemonBasic))
@@ -384,9 +385,8 @@ async function buildCryQuestion(pokemon, seed) {
 }
 
 async function buildFlavorLoreQuestion(pokemon, seed) {
-  const snippet = pokemon.description.length > 70
-    ? `${pokemon.description.slice(0, 70)}…`
-    : pokemon.description
+  const text = pokemon.description || '설명 없음'
+  const snippet = text.length > 70 ? `${text.slice(0, 70)}…` : text
 
   const wrongIds = getWrongPokemonIds([pokemon.id], 3, seed)
   const wrongPokemon = await Promise.all(wrongIds.map(fetchPokemonBasic))
@@ -414,7 +414,7 @@ async function buildFlavorLoreQuestion(pokemon, seed) {
 
 async function buildGenusLoreQuestion(pokemon, seed) {
   const wrongIds = getWrongPokemonIds([pokemon.id], 3, seed)
-  const wrongPokemon = await Promise.all(wrongIds.map(fetchPokemon))
+  const wrongPokemon = await Promise.all(wrongIds.map(fetchPokemonQuiz))
 
   const wrongGenera = [...new Set(
     wrongPokemon.map((p) => p.genus).filter((g) => g && g !== pokemon.genus),
@@ -534,11 +534,11 @@ export async function generateCategoryQuiz(categoryKey, count = QUESTIONS_PER_QU
 
   const questions = await Promise.all(
     pokemonIds.map(async (id, i) => {
-      const pokemon = await fetchPokemon(id)
+      const pokemon = await fetchPokemonQuiz(id)
       const seed = randomSeed() + i * 997
       return builder(pokemon, seed)
     }),
   )
 
-  return questions
+  return questions.filter(Boolean)
 }

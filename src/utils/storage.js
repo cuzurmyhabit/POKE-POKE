@@ -5,6 +5,7 @@ const DEFAULT_DATA = {
   streak: 0,
   lastVisitDate: null,
   collectedPokemon: [],
+  collectedShiny: [],
   silhouette: { date: null, attempts: 0, history: [] },
   quiz: { date: null, completedCount: 0, correctToday: 0, finished: false },
 }
@@ -12,10 +13,12 @@ const DEFAULT_DATA = {
 export function loadUserData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_DATA }
-    return { ...DEFAULT_DATA, ...JSON.parse(raw) }
+    if (!raw) return { ...DEFAULT_DATA, collectedShiny: [] }
+    const parsed = { ...DEFAULT_DATA, ...JSON.parse(raw) }
+    if (!Array.isArray(parsed.collectedShiny)) parsed.collectedShiny = []
+    return parsed
   } catch {
-    return { ...DEFAULT_DATA }
+    return { ...DEFAULT_DATA, collectedShiny: [] }
   }
 }
 
@@ -56,12 +59,52 @@ export function updateStreak(data) {
   }
 }
 
-export function addPokemon(data, pokemonId) {
-  if (data.collectedPokemon.includes(pokemonId)) return data
+export function addPokemon(data, pokemonId, { shiny = false } = {}) {
+  const key = shiny ? 'collectedShiny' : 'collectedPokemon'
+  if (data[key].includes(pokemonId)) return data
   return {
     ...data,
-    collectedPokemon: [...data.collectedPokemon, pokemonId].sort((a, b) => a - b),
+    [key]: [...data[key], pokemonId].sort((a, b) => a - b),
   }
+}
+
+export function hasNormalForm(data, pokemonId) {
+  return data.collectedPokemon.includes(pokemonId)
+}
+
+export function hasShinyForm(data, pokemonId) {
+  return data.collectedShiny.includes(pokemonId)
+}
+
+export function getUniqueCaughtCount(data) {
+  return new Set([...data.collectedPokemon, ...data.collectedShiny]).size
+}
+
+export function getAllCaughtIds(data) {
+  return [...new Set([...data.collectedPokemon, ...data.collectedShiny])].sort((a, b) => a - b)
+}
+
+export function tryAwardPokemon(data, pokemonId, isShiny) {
+  let next = data
+  let isNew = false
+
+  if (isShiny) {
+    if (!hasNormalForm(next, pokemonId)) {
+      next = addPokemon(next, pokemonId, { shiny: false })
+      isNew = true
+    }
+    if (!hasShinyForm(next, pokemonId)) {
+      next = addPokemon(next, pokemonId, { shiny: true })
+      isNew = true
+    }
+    return { data: next, isNew }
+  }
+
+  if (!hasNormalForm(next, pokemonId)) {
+    next = addPokemon(next, pokemonId, { shiny: false })
+    isNew = true
+  }
+  return { data: next, isNew }
 }
 
 export function addScore(data, points) {
@@ -73,6 +116,21 @@ export function addScore(data, points) {
 
 export const MAX_SILHOUETTE_PER_DAY = 2
 
+export function skipSilhouetteAttempt(data) {
+  const today = getTodayKey()
+  const current = getSilhouetteState(data)
+  if (current.attemptsLeft <= 0) return data
+
+  const attempts = (current.date === today ? current.attempts : 0) + 1
+  return {
+    ...data,
+    silhouette: {
+      date: today,
+      attempts,
+      history: current.history ?? [],
+    },
+  }
+}
 export function getSilhouetteState(data) {
   const today = getTodayKey()
   if (data.silhouette?.date !== today) {

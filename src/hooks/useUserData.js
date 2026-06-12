@@ -3,11 +3,13 @@ import {
   loadUserData,
   saveUserData,
   updateStreak,
-  addPokemon,
   addScore,
+  tryAwardPokemon,
   getTodayKey,
   getSilhouetteState,
+  skipSilhouetteAttempt,
 } from '../utils/storage'
+import { rollQuizCaptureShiny } from '../utils/shiny'
 
 export function useUserData() {
   const [userData, setUserData] = useState(() => {
@@ -30,25 +32,37 @@ export function useUserData() {
   }, [])
 
   const earnPoints = useCallback(
-    (points, pokemonId = null) => {
+    (points, pokemonId = null, { shiny = false } = {}) => {
+      let capture = null
       persist((data) => {
         let next = addScore(data, points)
-        if (pokemonId) next = addPokemon(next, pokemonId)
+        if (pokemonId) {
+          const isShiny = shiny
+          const result = tryAwardPokemon(next, pokemonId, isShiny)
+          next = result.data
+          if (result.isNew) capture = { id: pokemonId, shiny: isShiny }
+        }
         return next
       })
+      return capture
     },
     [persist],
   )
 
   const completeSilhouette = useCallback(
-    (pokemonId) => {
+    (pokemonId, { isShiny = false } = {}) => {
       const today = getTodayKey()
+      let capture = null
+
       persist((data) => {
         const current = getSilhouetteState(data)
         if (current.attemptsLeft <= 0) return data
 
         let next = addScore(data, 3)
-        next = addPokemon(next, pokemonId)
+        const result = tryAwardPokemon(next, pokemonId, isShiny)
+        next = result.data
+        if (result.isNew) capture = { id: pokemonId, shiny: isShiny }
+
         const attempts = (current.date === today ? current.attempts : 0) + 1
         return {
           ...next,
@@ -59,18 +73,33 @@ export function useUserData() {
           },
         }
       })
+
+      return capture
     },
     [persist],
   )
 
+  const failSilhouette = useCallback(() => {
+    persist((data) => skipSilhouetteAttempt(data))
+  }, [persist])
+
   const recordQuizAnswer = useCallback(
-    (isCorrect, pokemonId) => {
-      if (!isCorrect) return
+    (isCorrect, pokemonId, { canShiny = true, isShiny: forcedShiny = null } = {}) => {
+      if (!isCorrect || !pokemonId) return null
+
+      let capture = null
+      const rolledShiny = forcedShiny ?? rollQuizCaptureShiny(pokemonId)
+      const isShiny = canShiny && rolledShiny
+
       persist((data) => {
         let next = addScore(data, 2)
-        if (pokemonId) next = addPokemon(next, pokemonId)
+        const result = tryAwardPokemon(next, pokemonId, isShiny)
+        next = result.data
+        if (result.isNew) capture = { id: pokemonId, shiny: isShiny }
         return next
       })
+
+      return capture
     },
     [persist],
   )
@@ -89,6 +118,7 @@ export function useUserData() {
     persist,
     earnPoints,
     completeSilhouette,
+    failSilhouette,
     recordQuizAnswer,
   }
 }

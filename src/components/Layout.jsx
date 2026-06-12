@@ -7,8 +7,11 @@ const NAV_ITEMS = [
   { path: '/dogam', label: '내 포켓몬 도감', icon: '📖' },
 ]
 
+import { getUniqueCaughtCount } from '../utils/storage'
+
 export default function Layout({ userData, children }) {
-  const collected = userData.collectedPokemon.length
+  const collected = getUniqueCaughtCount(userData)
+  const shinyCount = userData.collectedShiny?.length ?? 0
 
   return (
     <div className="app-layout">
@@ -37,7 +40,7 @@ export default function Layout({ userData, children }) {
         <div className="sidebar-stats">
           <p className="stats-label">총 점수</p>
           <p className="stats-score">{userData.totalScore}</p>
-          <p className="stats-sub">{collected}마리 포켓몬 획득</p>
+          <p className="stats-sub">{collected}마리 포켓몬 획득{shinyCount > 0 ? ` · ✨ ${shinyCount}` : ''}</p>
           {userData.streak > 0 && (
             <span className="streak-badge">🔥 {userData.streak}일 연속</span>
           )}

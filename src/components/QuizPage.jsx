@@ -3,6 +3,7 @@ import { PageHeader } from './Layout'
 import PokemonImage from './PokemonImage'
 import { generateCategoryQuiz, QUIZ_CATEGORIES, QUESTIONS_PER_QUIZ } from '../services/quizGenerator'
 import { checkDualTypeAnswer } from '../utils/typeChart'
+import { getUniqueCaughtCount } from '../utils/storage'
 import { CRY_URL } from '../utils/pokemonSprites'
 import {
   loadQuizSession,
@@ -69,6 +70,7 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
   const [selected, setSelected] = useState(null)
   const [correctCount, setCorrectCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [textAnswer, setTextAnswer] = useState('')
   const audioRef = useRef(null)
 
@@ -78,12 +80,20 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
     startCategory(categoryKey)
     let cancelled = false
 
-    generateCategoryQuiz(categoryKey, QUESTIONS_PER_QUIZ).then((qs) => {
-      if (!cancelled) {
+    generateCategoryQuiz(categoryKey, QUESTIONS_PER_QUIZ)
+      .then((qs) => {
+        if (cancelled) return
+        if (!qs.length) throw new Error('empty')
         setQuestions(qs)
+        setLoadError(null)
         setLoading(false)
-      }
-    })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadError('퀴즈를 불러오지 못했어요. 네트워크를 확인해주세요.')
+          setLoading(false)
+        }
+      })
 
     return () => {
       cancelled = true
@@ -119,7 +129,11 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
     setSelected(optionId)
     const isCorrect = optionId === question.correctId
     if (isCorrect) setCorrectCount((c) => c + 1)
-    onAnswer(isCorrect, question.pokemon?.id ?? null)
+    if (question.pokemon) {
+      onAnswer(isCorrect, question.pokemon.id, { canShiny: question.pokemon.canShiny })
+    } else {
+      onAnswer(isCorrect, null)
+    }
   }
 
   const handleTextSubmit = (e) => {
@@ -129,7 +143,11 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
     const isCorrect = checkDualTypeAnswer(textAnswer, question.correctTypes)
     setSelected(isCorrect ? question.correctId : WRONG_ANSWER)
     if (isCorrect) setCorrectCount((c) => c + 1)
-    onAnswer(isCorrect, question.pokemon?.id ?? null)
+    if (question.pokemon) {
+      onAnswer(isCorrect, question.pokemon.id, { canShiny: question.pokemon.canShiny })
+    } else {
+      onAnswer(isCorrect, null)
+    }
   }
 
   const handleNext = () => {
@@ -142,6 +160,14 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
     finishedRef.current = true
     completeCategory(categoryKey, correctCount)
     onFinish(correctCount)
+  }
+
+  if (loadError) {
+    return (
+      <div className="page-loading">
+        <p className="error-text">{loadError}</p>
+      </div>
+    )
   }
 
   if (loading) {
@@ -255,11 +281,6 @@ function QuizPlay({ categoryKey, onFinish, onAnswer }) {
                 {isCorrect ? `🎉 ${question.successText()}` : '😢 오답이에요'}
               </p>
               <p className="feedback-desc">{question.explanation}</p>
-              {isCorrect && question.pokemon && (
-                <p className="unlock-notice">
-                  📖 {question.pokemon.name}이(가) 도감에 해금되었습니다!
-                </p>
-              )}
             </div>
             {isLastQuestion ? (
               <button type="button" className="next-btn" onClick={handleShowResult}>
@@ -335,7 +356,7 @@ export default function QuizPage({ userData, onAnswer }) {
             <span className="stat-label">총 점수</span>
           </div>
           <div className="stat-card">
-            <span className="stat-value">{userData.collectedPokemon.length}</span>
+            <span className="stat-value">{getUniqueCaughtCount(userData)}</span>
             <span className="stat-label">획득 포켓몬</span>
           </div>
           <div className="stat-card">
