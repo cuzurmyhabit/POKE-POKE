@@ -281,7 +281,7 @@ export default function TodaySilhouette({ userData, onComplete }) {
               </div>
 
               <div className="success-message">
-                <p>🎉 {pokemon.name}가 도감에 등록되었습니다!</p>
+                <p>🎉 {pokemon.name}이(가) 도감에 등록되었습니다!</p>
                 {canPlayMore ? (
                   <span>아직 오늘 {MAX_SILHOUETTE_PER_DAY - silhouetteState.attempts}번 더 도전할 수 있어요!</span>
                 ) : (
